@@ -8,14 +8,14 @@ from datetime import datetime, timedelta
 TAG = __name__
 logger = setup_logging()
 
-# 更新函数描述，让LLM知道它能拿到血糖、电流、温度等详细数据
+# 更新函数描述，让LLM知道它能拿到的实际数据指标（新接口仅包含血糖值）
 GET_GLUCOSE_FUNCTION_DESC = {
     "type": "function",
     "function": {
         "name": "get_glucose_data",
         "description": (
-            "获取用户的真实佩戴血糖设备数据。当用户询问自己或某个账号的血糖数据、血糖记录、电流、温度等实际情况时调用本函数。"
-            "可以查询最近一段时间的传感器记录（包含血糖值gluValue、电流current、温度temperature），如果未指定时间范围，默认返回最近15分钟的数据。"
+            "获取用户的真实佩戴血糖设备数据。当用户询问自己或某个账号的血糖数据、血糖记录等实际情况时调用本函数。"
+            "可以查询最近一段时间的传感器记录（包含血糖值），如果未指定时间范围，默认返回最近15分钟的数据。"
             "支持多种时间单位：分钟、小时、天，会自动转换为分钟数。"
             "如果用户提到了手机号或账号，请将其作为 phone_number 参数传入。"
             "请基于返回的真实数据进行专业、准确的解答。"
@@ -44,20 +44,15 @@ GET_GLUCOSE_FUNCTION_DESC = {
                     "description": "结束时间，格式：YYYY-MM-DD HH:MM:SS。默认为当前时间",
                 },
             },
-            "required":[],
+            "required": [],
         },
     },
 }
 
 HEADERS = {
     "Content-Type": "application/json",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    
-    # 从浏览器抓包补充的 ClientId
-    "ClientId": "8a8b2f4dc584722331af81f57140929a",
-    
-    # 从浏览器抓包补充的 登录Token (Bearer开头)
-    "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJsb2dpblR5cGUiOiJsb2dpbiIsImxvZ2luSWQiOiJzeXNfdXNlcjoxMzMiLCJyblN0ciI6Im9SUTFSb2RtdDNZcHlObXp1YjlkMG1qQ3FPMk9aUVlZIiwiY2xpZW50aWQiOiI4YThiMmY0ZGM1ODQ3MjIzMzFhZjgxZjU3MTQwOTI5YSIsInRlbmFudElkIjoiMDAwMDAwIiwidXNlcklkIjoxMzMsInVzZXJOYW1lIjoicGcifQ.QYPXzza3sMzrEWSgQsujZVdKclYpff2IOXJ6cVXMdGQ"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    # 新接口无需鉴权 token，已保持默认 headers
 }
 
 
@@ -87,7 +82,7 @@ def parse_time_range_to_minutes(time_range_str):
         "半": 0.5, "俩": 2, "两": 2, "仨": 3, "几": 3,
     }
 
-    patterns =[
+    patterns = [
         r'(\d+(?:\.\d+)?)\s*(?:个)?(?:分钟?|min|mins?|minute|minutes)',
         r'(\d+(?:\.\d+)?)\s*(?:个)?(?:小时?|时|hour|hours?|hr|hrs?)',
         r'(\d+(?:\.\d+)?)\s*(?:个)?(?:天|日|day|days?)',
@@ -133,17 +128,16 @@ def parse_time_range_to_minutes(time_range_str):
 
 def fetch_stomed_data(phone_number, start_time=None, end_time=None, minutes=15):
     """
-    通过手机号直接请求真实传感器数据
-    并根据时间范围在本地进行过滤
+    通过新接口直接获取传感器真实数据，并根据时间范围在本地进行过滤
     """
     try:
         url = f"http://pre-api.stomed.cn/api/sensor/sensor/readings?phoneNumber={phone_number}"
-        logger.info(f"查询传感器数据 - phoneNumber: {phone_number}")
+        logger.info(f"请求传感器数据 - 手机号: {phone_number}")
         res = requests.get(url, headers=HEADERS, timeout=10).json()
-        
-        sensor_data = res.get("data",[])
+
+        sensor_data = res.get("readings", [])
         if not sensor_data or not isinstance(sensor_data, list):
-            return None, "传感器暂无数据上报或未查询到该账号相关信息。"
+            return None, "传感器暂无数据上报。"
 
         # 计算时间过滤范围
         end_dt = datetime.now() if not end_time else datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
@@ -153,17 +147,17 @@ def fetch_stomed_data(phone_number, start_time=None, end_time=None, minutes=15):
             start_dt = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
 
         # 过滤时间段内的数据
-        filtered_readings =[]
+        filtered_readings = []
         for item in sensor_data:
-            index_time_ms = item.get("indexTime")
-            if index_time_ms:
+            time_ms = item.get("time")
+            if time_ms:
                 # 毫秒时间戳转 datetime
-                item_dt = datetime.fromtimestamp(index_time_ms / 1000.0)
+                item_dt = datetime.fromtimestamp(time_ms / 1000.0)
                 if start_dt <= item_dt <= end_dt:
                     filtered_readings.append(item)
 
         # 按照时间从近到远(倒序)排列
-        filtered_readings.sort(key=lambda x: x.get("indexTime", 0), reverse=True)
+        filtered_readings.sort(key=lambda x: x.get("time", 0), reverse=True)
         return filtered_readings, "获取成功"
 
     except requests.exceptions.RequestException as e:
@@ -185,8 +179,8 @@ def format_glucose_report(readings, time_range_minutes):
 
     report = f"以下是传感器实际测量的真实数据报告（{time_desc}，共找到 {len(readings)} 条记录）：\n\n"
 
-    # 提取有血糖值的记录进行统计
-    glu_values =[r.get('gluValue') for r in readings if isinstance(r.get('gluValue'), (int, float))]
+    # 根据过滤后的实际数据提取血糖值并进行统计，确保统计范围与用户查询范围一致
+    glu_values = [r.get('value') for r in readings if isinstance(r.get('value'), (int, float))]
     if glu_values:
         avg_glu = sum(glu_values) / len(glu_values)
         max_glu = max(glu_values)
@@ -198,17 +192,15 @@ def format_glucose_report(readings, time_range_minutes):
 
     # 最近一条数据的详细指标
     latest = readings[0]
-    latest_time_str = datetime.fromtimestamp(latest.get('indexTime', 0) / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
+    latest_time_str = datetime.fromtimestamp(latest.get('time', 0) / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
     report += f"【最新的一条传感器数据状态（时间：{latest_time_str}）】\n"
-    report += f"· 血糖值 (gluValue): {latest.get('gluValue', 'N/A')} mmol/L\n"
-    report += f"· 电流值 (current): {latest.get('current', 'N/A')} nA\n"
-    report += f"· 温度 (temperature): {latest.get('temperature', 'N/A')} ℃\n\n"
+    report += f"· 血糖值 (value): {latest.get('value', 'N/A')} mmol/L\n\n"
 
     # 附加上近 5 条数据的趋势列表
     report += "【最近5条数据详情记录】\n"
     for r in readings[:5]:
-        t_str = datetime.fromtimestamp(r.get('indexTime', 0) / 1000.0).strftime('%m-%d %H:%M:%S')
-        report += f"[{t_str}] 血糖: {r.get('gluValue', 'N/A')} mmol/L | 电流: {r.get('current', 'N/A')} | 温度: {r.get('temperature', 'N/A')}℃\n"
+        t_str = datetime.fromtimestamp(r.get('time', 0) / 1000.0).strftime('%m-%d %H:%M:%S')
+        report += f"[{t_str}] 血糖: {r.get('value', 'N/A')} mmol/L\n"
 
     return report
 
@@ -274,7 +266,7 @@ def get_glucose_data(conn, phone_number: str = None, minutes: int = None,
     elif minutes is not None:
         final_minutes = minutes
 
-    # ==== 调用数据获取函数 ====
+    # ==== 核心改动：调用单步数据获取函数 ====
     readings, error_msg = fetch_stomed_data(phone_number, start_time, end_time, final_minutes)
     
     if readings is None:
