@@ -94,5 +94,18 @@ services:
       retries: 3
     networks:
       - default
+  # 新增：测试页面专用 Nginx 服务
+  xiaozhi-test-page:
+    image: nginx:alpine
+    container_name: xiaozhi-test-page
+    restart: always
+    ports:
+      # 将服务器的 8006 端口映射到 Nginx 容器的 80 端口
+      - "8006:80"
+    volumes:
+      # 将当前目录下的 test 文件夹映射为 Nginx 的网页根目录（:ro 表示只读，更安全）
+      - ./test:/usr/share/nginx/html:ro
+    networks:
+      - default
 networks:
   default:
