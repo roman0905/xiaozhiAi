@@ -140,7 +140,7 @@ cython_debug/
 tmp
 .history
 .DS_Store
-main/xiaozhi-server/data
+
 
 # ============== 前端依赖忽略 (已更新) ==============
 # 忽略所有目录下的 node_modules
