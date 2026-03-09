@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 [![Banners](docs/images/banner1.png)](https://github.com/xinnan-tech/xiaozhi-esp32-server)
 
 <h1 align="center">小智后端服务xiaozhi-esp32-server</h1>
@@ -376,3 +377,7 @@ Websocket接口地址: wss://2662r3426b.vicp.fun/xiaozhi/v1/
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=xinnan-tech/xiaozhi-esp32-server&type=Date" />
  </picture>
 </a>
+=======
+# xiaozhiAi
+二开小智ai
+>>>>>>> 7031f61934d8f926018092054217603bc7874533

@@ -133,50 +133,17 @@ def parse_time_range_to_minutes(time_range_str):
 
 def fetch_stomed_data(phone_number, start_time=None, end_time=None, minutes=15):
     """
-    通过 手机号 -> userId -> sensorNum -> 真实传感器数据 的三步请求获取数据
+    通过手机号直接请求真实传感器数据
     并根据时间范围在本地进行过滤
     """
     try:
-        # 第一步：通过电话号码查询 userId
-        url1 = f"http://pre-api.stomed.cn/system/userInfo/list?mode=2&pageNum=1&pageSize=10&phonenumber={phone_number}"
-        logger.info(f"Step 1: 查询用户信息 - {phone_number}")
-        res1 = requests.get(url1, headers=HEADERS, timeout=10).json()
+        url = f"http://pre-api.stomed.cn/api/sensor/sensor/readings?phoneNumber={phone_number}"
+        logger.info(f"查询传感器数据 - phoneNumber: {phone_number}")
+        res = requests.get(url, headers=HEADERS, timeout=10).json()
         
-        users = res1.get("rows") or res1.get("data",[])
-        if isinstance(users, dict) and "list" in users:
-            users = users["list"]
-        
-        if not users or not isinstance(users, list):
-            return None, "未查询到该手机号对应的账号信息。"
-        
-        user_id = users[0].get("userId")
-        if not user_id:
-            return None, "账号信息异常，未能获取 userId。"
-
-        # 第二步：通过 userId 查询 sensorNum
-        url2 = f"http://pre-api.stomed.cn/api/device/device/list?pageNum=1&pageSize=9999&userId={user_id}"
-        logger.info(f"Step 2: 查询绑定设备 - userId: {user_id}")
-        res2 = requests.get(url2, headers=HEADERS, timeout=10).json()
-        
-        devices = res2.get("rows") or res2.get("data",[])
-        if isinstance(devices, dict) and "list" in devices:
-            devices = devices["list"]
-            
-        if not devices or not isinstance(devices, list):
-            return None, "该账号当前未绑定任何设备。"
-            
-        sensor_num = devices[0].get("sensorNum")
-        if not sensor_num:
-            return None, "设备信息异常，未能获取 sensorNum。"
-
-        # 第三步：通过 sensorNum 获取传感器全部数据
-        url3 = f"http://pre-api.stomed.cn/api/sensor/sensor/all/list?sensorNum={sensor_num}"
-        logger.info(f"Step 3: 查询传感器数据 - sensorNum: {sensor_num}")
-        res3 = requests.get(url3, headers=HEADERS, timeout=10).json()
-        
-        sensor_data = res3.get("data",[])
+        sensor_data = res.get("data",[])
         if not sensor_data or not isinstance(sensor_data, list):
-            return None, "传感器暂无数据上报。"
+            return None, "传感器暂无数据上报或未查询到该账号相关信息。"
 
         # 计算时间过滤范围
         end_dt = datetime.now() if not end_time else datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S")
@@ -307,11 +274,10 @@ def get_glucose_data(conn, phone_number: str = None, minutes: int = None,
     elif minutes is not None:
         final_minutes = minutes
 
-    # ==== 核心改动：调用三步联查的数据获取函数 ====
+    # ==== 调用数据获取函数 ====
     readings, error_msg = fetch_stomed_data(phone_number, start_time, end_time, final_minutes)
     
     if readings is None:
-        # 说明在上面三步查询中发生了错误或者没有拿到数据
         return ActionResponse(Action.REQLLM, f"获取数据失败：{error_msg}", None)
 
     # 格式化报告
