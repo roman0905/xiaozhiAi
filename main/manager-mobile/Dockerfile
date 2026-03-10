@@ -5,7 +5,10 @@ FROM node:18-alpine AS builder
 WORKDIR /app
 
 # Install pnpm (matches packageManager field in package.json)
-RUN npm install -g pnpm@10.10.0
+RUN npm install -g pnpm@10.10.0 --registry=https://registry.npmmirror.com
+
+# Use domestic mirror to avoid timeouts when building on a Chinese server
+RUN pnpm config set registry https://registry.npmmirror.com
 
 # Copy dependency manifests first to leverage Docker layer cache
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
