@@ -1,0 +1,20 @@
+# Build artefacts
+dist/
+unpackage/
+
+# Dependencies (re-installed inside Docker)
+node_modules/
+
+# Version control
+.git/
+.gitignore
+
+# Editor / OS metadata
+.idea/
+.vscode/
+.DS_Store
+*.log
+
+# Local env overrides (secrets should not reach the build context)
+env/.env.*.local
+env/.env.local
