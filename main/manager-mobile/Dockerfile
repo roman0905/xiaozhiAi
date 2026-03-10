@@ -14,6 +14,11 @@ RUN pnpm config set registry https://registry.npmmirror.com
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches/ ./patches/
 
+# Hoist all packages to node_modules root so Vite/Rollup can resolve them.
+# This is necessary because pnpm's default strict isolation can hide transitive
+# deps (e.g. @tanstack/query-core) from bundler resolution.
+RUN echo "shamefully-hoist=true" >> .npmrc
+
 # Install all dependencies
 RUN pnpm install --no-frozen-lockfile --ignore-scripts
 
