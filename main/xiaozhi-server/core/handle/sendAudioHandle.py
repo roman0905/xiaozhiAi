@@ -9,6 +9,7 @@ from core.utils import textUtils
 from core.utils.util import audio_to_data
 from core.providers.tts.dto.dto import SentenceType
 from core.utils.audioRateController import AudioRateController
+from core.utils.latency_tracker import log_latency
 
 TAG = __name__
 # 音频帧时长（毫秒）
@@ -21,6 +22,14 @@ async def sendAudioMessage(conn: "ConnectionHandler", sentenceType, audios, text
     if conn.tts.tts_audio_first_sentence:
         conn.logger.bind(tag=TAG).info(f"发送第一段语音: {text}")
         conn.tts.tts_audio_first_sentence = False
+        _turn_start = getattr(conn, "turn_start_time", 0)
+        if _turn_start:
+            log_latency(
+                "tts_first_audio",
+                getattr(conn, "current_turn_id", ""),
+                time.monotonic() - _turn_start,
+                text=text,
+            )
         await send_tts_message(conn, "start", None)
 
     if sentenceType == SentenceType.FIRST:

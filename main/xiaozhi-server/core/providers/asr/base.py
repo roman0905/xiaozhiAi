@@ -91,6 +91,8 @@ class ASRProviderBase(ABC):
             # 为本轮对话生成唯一 turn_id，串联后续所有阶段耗时
             turn_id = uuid.uuid4().hex[:8]
             conn.current_turn_id = turn_id
+            conn.turn_start_time = time.monotonic()  # 用于 tts_first_audio 端到端计时
+            conn._turn_from_asr = True             # 标记本轮由语音触发，chat() 不再重置 turn_start_time
             log_latency("asr_start", turn_id, 0.0)
 
             # 准备音频数据

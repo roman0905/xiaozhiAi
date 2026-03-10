@@ -8,6 +8,7 @@
 """
 
 import os
+import uuid
 import time
 from loguru import logger as _base_logger
 
@@ -16,19 +17,36 @@ _initialized = False
 
 # ── 阶段中文名映射 ────────────────────────────────────────────────────────────
 _STAGE_LABELS = {
-    "asr_start":        "语音识别·开始",
-    "asr_infer":        "语音识别·推理",
-    "asr_total":        "语音识别·完成",
-    "intent_llm":       "意图识别",
-    "llm_prepare":      "大模型·准备",
-    "llm_first_token":  "大模型·首字",
-    "llm_stream_total": "大模型·完成",
-    "tool_exec":        "工具调用",
-    "tool_exec_total":  "工具调用·汇总",
-    "tts_synthesis":    "语音合成",
+    "asr_start":           "语音识别·开始",
+    "chat_start":          "文字输入·开始",
+    "asr_infer":           "语音识别·推理",
+    "asr_total":           "语音识别·完成",
+    "intent_llm":          "意图识别",
+    "llm_prepare":         "大模型·准备",
+    "llm_first_token":     "大模型·首字",
+    "llm_stream_total":    "大模型·完成",
+    "tool_exec":           "工具调用",
+    "tool_exec_total":     "工具调用·汇总",
+    "tool_parallel_total": "工具调用·并行总耗时",
+    "tool_llm_reprocess":  "工具结果·LLM再推理",
+    "tts_synthesis":       "语音合成",
+    "tts_first_audio":     "语音合成·首包",
+    "turn_e2e":            "端到端·总耗时",
 }
 
 _TEXT_MAX_LEN = 50  # 对话文本最大展示字符数
+
+
+def generate_turn_id() -> str:
+    """生成 8 位短 turn_id，用于串联同一轮对话的各阶段日志。
+
+    典型用法::
+
+        from core.utils.latency_tracker import generate_turn_id
+        conn.current_turn_id = generate_turn_id()
+    """
+    return uuid.uuid4().hex[:8]
+
 
 def _truncate(text: str, max_len: int = _TEXT_MAX_LEN) -> str:
     """截断过长的文本，保留首尾"""
@@ -102,11 +120,12 @@ def log_latency(stage: str, turn_id: str = "", elapsed_s: float = 0.0, **kwargs)
                    - ``count``: 工具数量
                    - ``depth``: 递归深度（工具调用后回 LLM 的次数）
     """
-    # asr_start 耗时恒为 0，仅做轮次分隔标记
-    if stage == "asr_start":
+    # asr_start / chat_start 耗时恒为 0，仅做轮次分隔标记
+    if stage in ("asr_start", "chat_start"):
         ll = get_latency_logger()
         ll.info(f"{'─' * 60}")
-        ll.info(f"轮次[{turn_id}] ▶ 新一轮对话开始")
+        suffix = " (文字输入)" if stage == "chat_start" else ""
+        ll.info(f"轮次[{turn_id}] ▶ 新一轮对话开始{suffix}")
         return
 
     label = _STAGE_LABELS.get(stage, stage)
@@ -140,12 +159,12 @@ def log_latency(stage: str, turn_id: str = "", elapsed_s: float = 0.0, **kwargs)
 
 
 class LatencyTimer:
-    """上下文管理器：自动计时并写耗时日志。
+    """同步上下文管理器：自动计时并写耗时日志。
 
     用法::
 
         with LatencyTimer("asr_infer", turn_id=conn.current_turn_id):
-            result = await asr_call(...)
+            result = asr_call(...)
 
         # 或者手动读取耗时
         timer = LatencyTimer("llm_prepare", turn_id=tid)
@@ -166,6 +185,39 @@ class LatencyTimer:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self.elapsed_s = time.monotonic() - self._start
+        status = "error" if exc_type else "ok"
+        log_latency(
+            self.stage,
+            self.turn_id,
+            self.elapsed_s,
+            status=status,
+            **self.kwargs,
+        )
+        return False  # 不吞掉原始异常
+
+
+class AsyncLatencyTimer:
+    """异步上下文管理器：自动计时并写耗时日志。
+
+    用法::
+
+        async with AsyncLatencyTimer("asr_infer", turn_id=conn.current_turn_id):
+            result = await asr_call(...)
+    """
+
+    def __init__(self, stage: str, turn_id: str = "", **kwargs):
+        self.stage = stage
+        self.turn_id = turn_id
+        self.kwargs = kwargs
+        self._start: float = 0.0
+        self.elapsed_s: float = 0.0
+
+    async def __aenter__(self):
+        self._start = time.monotonic()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
         self.elapsed_s = time.monotonic() - self._start
         status = "error" if exc_type else "ok"
         log_latency(

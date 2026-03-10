@@ -42,7 +42,7 @@ from core.utils.prompt_manager import PromptManager
 from core.utils.voiceprint_provider import VoiceprintProvider
 from core.utils.util import get_system_error_response
 from core.utils import textUtils
-from core.utils.latency_tracker import log_latency
+from core.utils.latency_tracker import log_latency, generate_turn_id
 
 
 TAG = __name__
@@ -798,10 +798,19 @@ class ConnectionHandler:
         if query is not None:
             self.logger.bind(tag=TAG).info(f"大模型收到用户消息: {query}")
 
-        # 获取本轮 turn_id（由 ASR 或 startToChat 阶段生成）
+        # 为最顶层时新建会话ID和发送FIRST请求
+        if depth == 0:
+            _turn_e2e_start = time.monotonic()
+            # 非 ASR 路径（文字输入）：刷新 turn_id 和 turn_start_time，避免沿用旧值
+            if not getattr(self, "_turn_from_asr", False):
+                self.current_turn_id = generate_turn_id()
+                self.turn_start_time = _turn_e2e_start
+                log_latency("chat_start", self.current_turn_id, 0.0)
+            self._turn_from_asr = False  # 复位，供下一轮判断
+
+        # 获取本轮 turn_id（ASR 或上面文字路径已保证是新值）
         turn_id = getattr(self, "current_turn_id", "")
 
-        # 为最顶层时新建会话ID和发送FIRST请求
         if depth == 0:
             self.sentence_id = str(uuid.uuid4().hex)
             self.dialogue.put(Message(role="user", content=query))
@@ -1037,6 +1046,7 @@ class ConnectionHandler:
                     content_type=ContentType.ACTION,
                 )
             )
+            log_latency("turn_e2e", turn_id, time.monotonic() - _turn_e2e_start, text=query)
             # 使用lambda延迟计算，只有在DEBUG级别时才执行get_llm_dialogue()
             self.logger.bind(tag=TAG).debug(
                 lambda: json.dumps(
@@ -1098,7 +1108,14 @@ class ConnectionHandler:
                         )
                     )
 
+            _reprocess_start = time.monotonic()
             self.chat(None, depth=depth + 1)
+            log_latency(
+                "tool_llm_reprocess",
+                getattr(self, "current_turn_id", ""),
+                time.monotonic() - _reprocess_start,
+                depth=depth + 1,
+            )
 
     def _report_worker(self):
         """聊天记录上报工作线程"""
