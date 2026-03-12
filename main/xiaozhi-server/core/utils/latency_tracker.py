@@ -32,6 +32,7 @@ _STAGE_LABELS = {
     "tts_synthesis":       "语音合成",
     "tts_first_audio":     "语音合成·首包",
     "turn_e2e":            "端到端·总耗时",
+    "glucose_fetch":       "血糖查询·结果",
 }
 
 _TEXT_MAX_LEN = 50  # 对话文本最大展示字符数

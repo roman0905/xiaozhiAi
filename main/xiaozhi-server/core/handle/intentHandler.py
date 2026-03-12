@@ -1,13 +1,11 @@
 import json
 import uuid
 import asyncio
-import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from core.connection import ConnectionHandler
 from core.utils.dialogue import Message
-from core.utils.latency_tracker import log_latency
 from core.providers.tts.dto.dto import ContentType
 from core.handle.helloHandle import checkWakeupWords
 from plugins_func.register import Action, ActionResponse
@@ -70,14 +68,10 @@ async def analyze_intent_with_llm(conn: "ConnectionHandler", text):
         conn.logger.bind(tag=TAG).warning("意图识别服务未初始化")
         return None
 
-    turn_id = getattr(conn, "current_turn_id", "")
     # 对话历史记录
     dialogue = conn.dialogue
     try:
-        intent_start = time.monotonic()
         intent_result = await conn.intent.detect_intent(conn, dialogue.dialogue, text)
-        intent_elapsed = time.monotonic() - intent_start
-        log_latency("intent_llm", turn_id, intent_elapsed, text=text)
         return intent_result
     except Exception as e:
         conn.logger.bind(tag=TAG).error(f"意图识别失败: {str(e)}")

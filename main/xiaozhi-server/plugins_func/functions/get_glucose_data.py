@@ -3,6 +3,7 @@ import re
 from config.logger import setup_logging
 from plugins_func.register import register_function, ToolType, ActionResponse, Action
 from core.utils.cache.manager import cache_manager, CacheType
+from core.utils.latency_tracker import log_latency
 from datetime import datetime, timedelta
 
 TAG = __name__
@@ -268,9 +269,33 @@ def get_glucose_data(conn, phone_number: str = None, minutes: int = None,
 
     # ==== 核心改动：调用单步数据获取函数 ====
     readings, error_msg = fetch_stomed_data(phone_number, start_time, end_time, final_minutes)
-    
+
+    turn_id = getattr(conn, "current_turn_id", "")
+
     if readings is None:
+        log_latency("glucose_fetch", turn_id, 0.0,
+                    text=f"手机号:{phone_number[:3]}****{phone_number[-4:]} | 失败:{error_msg}")
         return ActionResponse(Action.REQLLM, f"获取数据失败：{error_msg}", None)
+
+    # 构建简略摘要写入 latency.log
+    time_desc = format_time_description(final_minutes)
+    count = len(readings)
+    latest = readings[0] if readings else {}
+    latest_val = latest.get("value", "N/A")
+    latest_time_str = (
+        datetime.fromtimestamp(latest.get("time", 0) / 1000.0).strftime("%H:%M:%S")
+        if latest.get("time") else "N/A"
+    )
+    glu_values = [r.get("value") for r in readings if isinstance(r.get("value"), (int, float))]
+    avg_str = f"{sum(glu_values)/len(glu_values):.1f}" if glu_values else "N/A"
+    log_latency(
+        "glucose_fetch", turn_id, 0.0,
+        text=(
+            f"手机号:{phone_number[:3]}****{phone_number[-4:]} | "
+            f"{time_desc} | 共{count}条 | "
+            f"最新:{latest_val}mmol/L@{latest_time_str} | 均值:{avg_str}mmol/L"
+        ),
+    )
 
     # 格式化报告
     report = format_glucose_report(readings, final_minutes)
