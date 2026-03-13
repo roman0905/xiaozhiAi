@@ -20,17 +20,23 @@ BLOOD_GLUCOSE_TOOL = "get_glucose_data"
 GLUCOSE_CONTEXT_ATTR = "_prefilter_glucose_context"
 GLUCOSE_CONTEXT_TTL_SECONDS = 600
 BLOOD_GLUCOSE_PATTERNS = [
-    r"(查|查询|看看|看下|看一看|测|获取|调取).*(血糖|血糖记录|血糖数据|血糖趋势|血糖值)",
-    r"((?:最近|过去|近|这)[\d一二三四五六七八九十两半俩仨几]+(?:个)?(?:分钟|小时|天)).*"
-    r"(血糖|血糖记录|血糖数据|血糖趋势|血糖值)",
-    r"(现在|当前|最新|最近).*(血糖|血糖记录|血糖数据|血糖趋势|血糖值)"
-    r".*(多少|怎么样|数据|记录|趋势|数值|值)",
-    r"(我(的|这)|帮我|给我|请你).*(血糖|血糖记录|血糖数据|血糖趋势|血糖值)"
-    r".*(多少|怎么样|如何|数据|记录|趋势|最新|最近|当前|现在)",
+    re.compile(r"(查|查询|看看|看下|看一看|测|获取|调取).*(血糖|血糖记录|血糖数据|血糖趋势|血糖值)"),
+    re.compile(
+        r"((?:最近|过去|近|这)[\d一二三四五六七八九十两半俩仨几]+(?:个)?(?:分钟|小时|天)).*"
+        r"(血糖|血糖记录|血糖数据|血糖趋势|血糖值)"
+    ),
+    re.compile(
+        r"(现在|当前|最新|最近).*(血糖|血糖记录|血糖数据|血糖趋势|血糖值)"
+        r".*(多少|怎么样|数据|记录|趋势|数值|值)"
+    ),
+    re.compile(
+        r"(我(的|这)|帮我|给我|请你).*(血糖|血糖记录|血糖数据|血糖趋势|血糖值)"
+        r".*(多少|怎么样|如何|数据|记录|趋势|最新|最近|当前|现在)"
+    ),
 ]
 BLOOD_GLUCOSE_FOLLOWUP_PATTERNS = [
-    r"(数据|记录|趋势|平均|总体|整体).*(怎么样|如何|呢)?",
-    r"(数据|记录|趋势|平均|总体|整体).*(又是怎么样的|又怎么样)",
+    re.compile(r"(数据|记录|趋势|平均|总体|整体).*(怎么样|如何|呢)?"),
+    re.compile(r"(数据|记录|趋势|平均|总体|整体).*(又是怎么样的|又怎么样)"),
 ]
 DIRECT_TOOL_REPLY_KEYWORDS = [
     "请先绑定手机号码",
@@ -57,21 +63,23 @@ def _extract_plain_text(text: str) -> str:
 
 def _hit_blood_glucose_query(text: str) -> bool:
     """仅拦截明确的血糖数据查询请求，不接管一般控糖知识问答。"""
-    return any(re.search(pattern, text) for pattern in BLOOD_GLUCOSE_PATTERNS)
+    return any(pattern.search(text) for pattern in BLOOD_GLUCOSE_PATTERNS)
 
 
 def _hit_blood_glucose_followup(conn: "ConnectionHandler", text: str) -> bool:
     """
     允许在同一会话里延续上一轮血糖查询上下文，例如：
-    “最近三天的数据又是怎么样的”
-    这类句子不再要求重复说“血糖”。
+    "最近三天的数据又是怎么样的" / "最近三小时呢"
+    这类句子不再要求重复说"血糖"。
     """
     context = _get_glucose_context(conn)
     if not context or context.get("topic") != "glucose":
         return False
-    if not _extract_time_range(text):
-        return False
-    return any(re.search(pattern, text) for pattern in BLOOD_GLUCOSE_FOLLOWUP_PATTERNS)
+    # 有活跃血糖上下文且含明确时间范围（例如"最近三小时呢?"），直接拦截
+    if _extract_time_range(text):
+        return True
+    # 无时间范围但含数据相关关键词（例如"数据怎么样呢"）
+    return any(pattern.search(text) for pattern in BLOOD_GLUCOSE_FOLLOWUP_PATTERNS)
 
 
 def _should_prefilter_glucose(conn: "ConnectionHandler", text: str) -> bool:
@@ -124,6 +132,9 @@ def _build_tool_args(conn: "ConnectionHandler", text: str) -> dict[str, Any]:
         context = _get_glucose_context(conn)
         if context:
             phone_number = context.get("phone_number")
+    if not phone_number:
+        # 兜底：从设备绑定的 headers 读取（未来 MAC 绑定方案走此路径）
+        phone_number = conn.headers.get("phone_number")
     time_range = _extract_time_range(text)
     if phone_number:
         args["phone_number"] = phone_number
@@ -151,7 +162,7 @@ def _build_quick_glucose_reply(tool_text: str) -> Optional[str]:
     value = snapshot.get("value")
     if not value:
         return None
-    return f"查到了，你最近一条血糖数据是 {value} mmol/L。"
+    return f"你最近一条血糖数据是 {value} mmol/L。"
 
 
 def _build_tool_context(tool_text: str, quick_reply_sent: bool) -> str:

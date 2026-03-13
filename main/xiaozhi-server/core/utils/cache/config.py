@@ -20,6 +20,7 @@ class CacheType(Enum):
     DEVICE_PROMPT = "device_prompt"
     VOICEPRINT_HEALTH = "voiceprint_health"  # 声纹识别健康检查
     AUDIO_DATA = "audio_data"  # 音频数据缓存
+    GLUCOSE = "glucose"  # 血糖传感器数据缓存
 
 
 @dataclass
@@ -61,6 +62,9 @@ class CacheConfig:
             ),
             CacheType.AUDIO_DATA: cls(
                 strategy=CacheStrategy.TTL, ttl=600, max_size=100  # 10分钟过期
+            ),
+            CacheType.GLUCOSE: cls(
+                strategy=CacheStrategy.TTL, ttl=120, max_size=200  # 2分钟过期，CGM每5分钟更新一次
             ),
         }
         return configs.get(cache_type, cls())

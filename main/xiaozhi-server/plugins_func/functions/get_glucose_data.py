@@ -99,15 +99,23 @@ def parse_time_range_to_minutes(time_range_str):
             try:
                 value = float(value_str)
             except ValueError:
+                # 将中文数字字符串转为阿拉伯数字
+                # 支持：一二三...十、二十、三十五 等
                 value = 0
+                tens = 0
                 for char in value_str:
-                    if char in chinese_numbers:
-                        if char == "十" and value == 0:
-                            value = 10
-                        elif char == "十":
-                            value *= 10
+                    if char == "十":
+                        # "十" 单独出现时表示10；在数字后出现时表示乘10
+                        tens = value if value > 0 else 1
+                        value = tens * 10
+                        tens = 0
+                    elif char in chinese_numbers:
+                        n = chinese_numbers[char]
+                        if value > 0 and value % 10 == 0:
+                            # 处理 "二十五" 中的 "五"：在整十之后追加个位
+                            value += n
                         else:
-                            value += chinese_numbers[char]
+                            value = n
 
             if i in [0, 3]: return int(value)
             elif i in [1, 4]: return int(value * 60)
@@ -129,14 +137,23 @@ def parse_time_range_to_minutes(time_range_str):
 
 def fetch_stomed_data(phone_number, start_time=None, end_time=None, minutes=15):
     """
-    通过新接口直接获取传感器真实数据，并根据时间范围在本地进行过滤
+    通过新接口直接获取传感器真实数据，并根据时间范围在本地进行过滤。
+    原始 readings 列表按手机号缓存 2 分钟，避免短时间内重复请求 API。
     """
     try:
-        url = f"http://pre-api.stomed.cn/api/sensor/sensor/readings?phoneNumber={phone_number}"
-        logger.info(f"请求传感器数据 - 手机号: {phone_number}")
-        res = requests.get(url, headers=HEADERS, timeout=10).json()
+        cache_key = f"glucose:{phone_number}"
+        sensor_data = cache_manager.get(CacheType.GLUCOSE, cache_key)
 
-        sensor_data = res.get("readings", [])
+        if sensor_data is None:
+            url = f"http://pre-api.stomed.cn/api/sensor/sensor/readings?phoneNumber={phone_number}"
+            logger.info(f"请求传感器数据 - 手机号: {phone_number}")
+            res = requests.get(url, headers=HEADERS, timeout=10).json()
+            sensor_data = res.get("readings", [])
+            if sensor_data and isinstance(sensor_data, list):
+                cache_manager.set(CacheType.GLUCOSE, cache_key, sensor_data)
+        else:
+            logger.info(f"命中血糖数据缓存 - 手机号: {phone_number[:3]}****{phone_number[-4:]}")
+
         if not sensor_data or not isinstance(sensor_data, list):
             return None, "传感器暂无数据上报。"
 
@@ -253,6 +270,14 @@ def get_glucose_data(conn, phone_number: str = None, minutes: int = None,
             "手机号码格式不正确，请提供11位中国大陆手机号，例如：13312340778",
             None
         )
+
+    # 手机号解析成功后，将其写回 prefilter 血糖上下文，
+    # 这样无论本次调用来自 LLM 还是 prefilter，后续追问都能复用手机号
+    try:
+        from core.handle.prefilterHandler import _remember_glucose_context
+        _remember_glucose_context(conn, phone_number)
+    except Exception:
+        pass
 
     device_id = conn.headers.get("device-id")
     logger.info(f"设备 {device_id} 请求真实佩戴数据，手机号: {phone_number[:3]}****{phone_number[-4:]}")

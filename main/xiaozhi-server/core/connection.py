@@ -138,6 +138,10 @@ class ConnectionHandler:
 
         # llm相关变量
         self.dialogue = Dialogue()
+        self.current_turn_id = ""
+        self.turn_start_time = 0.0
+        self._turn_from_asr = False
+        self._turn_initialized_in_entry = False
 
         # tts相关变量
         self.sentence_id = None
@@ -801,12 +805,13 @@ class ConnectionHandler:
         # 为最顶层时新建会话ID和发送FIRST请求
         if depth == 0:
             _turn_e2e_start = time.monotonic()
-            # 非 ASR 路径（文字输入）：刷新 turn_id 和 turn_start_time，避免沿用旧值
-            if not getattr(self, "_turn_from_asr", False):
+            # 入口已初始化本轮时，直接复用 turn_id / turn_start_time。
+            if not getattr(self, "_turn_initialized_in_entry", False):
                 self.current_turn_id = generate_turn_id()
                 self.turn_start_time = _turn_e2e_start
                 log_latency("chat_start", self.current_turn_id, 0.0)
-            self._turn_from_asr = False  # 复位，供下一轮判断
+            self._turn_from_asr = False
+            self._turn_initialized_in_entry = False
 
         # 获取本轮 turn_id（ASR 或上面文字路径已保证是新值）
         turn_id = getattr(self, "current_turn_id", "")

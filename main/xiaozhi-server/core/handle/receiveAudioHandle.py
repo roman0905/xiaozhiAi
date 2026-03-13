@@ -11,6 +11,7 @@ from core.handle.abortHandle import handleAbortMessage
 from core.handle.intentHandler import handle_user_intent
 from core.handle.prefilterHandler import try_prefilter_route
 from core.utils.output_counter import check_device_output_limit
+from core.utils.latency_tracker import log_latency
 from core.handle.sendAudioHandle import send_stt_message, SentenceType
 
 TAG = __name__
@@ -43,9 +44,15 @@ async def resume_vad_detection(conn: "ConnectionHandler"):
 
 
 async def startToChat(conn: "ConnectionHandler", text):
-    # 如果 ASR 阶段没有生成 turn_id（文本直接输入场景），在这里生成
-    if not getattr(conn, "current_turn_id", None):
+    if getattr(conn, "_turn_from_asr", False):
+        conn._turn_initialized_in_entry = True
+    else:
         conn.current_turn_id = uuid.uuid4().hex[:8]
+        conn.turn_start_time = time.monotonic()
+        conn._turn_initialized_in_entry = True
+        log_latency("chat_start", conn.current_turn_id, 0.0)
+    conn._turn_from_asr = False
+
     # 检查输入是否是JSON格式（包含说话人信息）
     speaker_name = None
     language_tag = None
